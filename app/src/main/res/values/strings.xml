@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TowerBot</string>
+    <string name="accessibility_description">Permite a TowerBot ver la pantalla de The Tower y tocarla por ti para jugar mientras duermes. Las capturas no salen del teléfono.</string>
+</resources>
