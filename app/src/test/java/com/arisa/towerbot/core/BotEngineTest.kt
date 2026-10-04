@@ -25,6 +25,7 @@ private val healthTab = Pt(50, 190)
 private val waveBox = Box(0, 40, 50, 60)
 private val coinsBox = Box(0, 60, 50, 80)
 private val tierBox = Box(50, 40, 100, 60)
+private val hudBox = Box(50, 60, 100, 80)
 
 /**
  * Un juego de mentira: inicio rojo, partida verde, fin azul. En el nivel t cada partida
@@ -38,6 +39,10 @@ private class FakeGame(
 ) : Device {
     var state = "home"
     var captures = 0
+    /** El contador de arriba enseña el ritmo («1.1K/min») hasta que se pulsa. */
+    var hudShowsRate = false
+    var hudTaps = 0
+    var balance = 200_000.0
     var purchases = 0
     val played = mutableListOf<Int>()
 
@@ -53,6 +58,7 @@ private class FakeGame(
     }
 
     override suspend fun capture(): Shot {
+        if (state == "run") balance += 10
         if (state == "run" && ++captures >= runLength.getValue(tier)) state = "over"
         val f = frame()
         return object : Shot { override val frame = f }
@@ -72,6 +78,7 @@ private class FakeGame(
             state == "over" && p == retry -> start()
             state == "over" && p == goHome -> state = "home"
             state == "run" && p == slotBox.center -> purchases++
+            state == "run" && p == hudBox.center -> { hudTaps++; hudShowsRate = false }
         }
     }
 
@@ -96,7 +103,7 @@ class BotEngineTest {
         return Calibration(
             screens = listOf(
                 ScreenDef("h", "Inicio", ScreenRole.HOME, anchor(RED), tap = battle, tierBox = tierBox, tierPrev = tierPrev, tierNext = tierNext),
-                ScreenDef("r", "Partida", ScreenRole.IN_RUN, anchor(GREEN), waveBox = waveBox, tierBox = tierBox),
+                ScreenDef("r", "Partida", ScreenRole.IN_RUN, anchor(GREEN), waveBox = waveBox, tierBox = tierBox, coinsBox = hudBox),
                 ScreenDef(
                     "o", "Fin", ScreenRole.GAME_OVER, anchor(BLUE),
                     tap = retry, waveBox = waveBox, coinsBox = coinsBox, tierBox = tierBox, homeTap = goHome,
@@ -113,6 +120,7 @@ class BotEngineTest {
         when (box) {
             coinsBox -> NumberParser.format(game.coins.getValue(game.tier))
             tierBox -> "Nivel ${game.tier}"
+            hudBox -> if (game.hudShowsRate) "1.1K/min" else NumberParser.format(game.balance)
             else -> "Oleada 42"
         }
     }
@@ -166,5 +174,23 @@ class BotEngineTest {
         val exploring = runs.filter { it.explore }.sumOf { it.minutes ?: 0.0 } / total
         assertTrue("exploró el ${(exploring * 100).toInt()} % del tiempo", exploring < 0.3)
         assertTrue(memory.brain.log.any { it.contains("Pruebo el Nivel 3") })
+    }
+
+    @Test fun `si el contador enseña el ritmo lo pulsa una vez y vuelve a medir monedas`() = runTest {
+        val game = FakeGame(runLength = mapOf(1 to 400), coins = mapOf(1 to 1500.0))
+        game.state = "run"
+        game.hudShowsRate = true
+        val memory = FakeMemory(calibration(), BotSettings(tierMode = TierMode.FIXED))
+        val engine = BotEngine(
+            game, memory, reader(game), MutableStateFlow(BotStatus()),
+            now = { testScheduler.currentTime }, random = Random(5),
+        )
+
+        engine.runLoop(stopAt = 20 * 60_000L)
+
+        assertEquals(1, game.hudTaps)
+        // La primera partida la cogió empezada: sus monedas salen del contador de arriba.
+        val first = memory.runs.first()
+        assertTrue("debería medir monedas aunque no la viera empezar: $first", first.gained != null && first.gained!! > 0)
     }
 }

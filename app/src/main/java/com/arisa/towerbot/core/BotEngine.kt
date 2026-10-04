@@ -134,6 +134,8 @@ class BotEngine(
         var startWave: Int? = null
         var lastWaveReadAt = 0L
         val coins = CoinTracker()
+        var hudTaps = 0
+        var lastHudTapAt = 0L
         var phaseIndex = -1
         val bought = mutableMapOf<Upgrade, Int>()
         val cooldownUntil = mutableMapOf<Upgrade, Long>()
@@ -361,8 +363,20 @@ class BotEngine(
             }
             if (r.tier == null) r.tier = readTier(shot, inRunBox(screen) { it.tierBox })
             inRunBox(screen) { it.coinsBox }?.let { box ->
-                // El juego a veces enseña ahí el ritmo («315/min») en vez del saldo: eso no sirve.
-                reader.read(shot, box)?.takeUnless { "/" in it }?.let(NumberParser::parse)?.let { r.coins.add(now(), it) }
+                val text = reader.read(shot, box)
+                if (text != null && "/" in text) {
+                    // El contador enseña el ritmo («315/min») en vez del saldo. Pulsarlo lo
+                    // devuelve al saldo; pocas veces y con pausa, por si no responde.
+                    if (r.hudTaps < MAX_HUD_TAPS && now() - r.lastHudTapAt > HUD_TAP_GAP_MS) {
+                        trace("El contador de monedas enseña «$text»: lo pulso para ver el saldo")
+                        r.hudTaps++
+                        r.lastHudTapAt = now()
+                        device.tap(box.center)
+                        delay(600)
+                    }
+                } else {
+                    text?.let(NumberParser::parse)?.let { r.coins.add(now(), it) }
+                }
             }
             status.update { it.copy(wave = r.wave, tier = r.tier) }
         }
@@ -559,5 +573,7 @@ class BotEngine(
         const val MAX_SEARCH_STEPS = 14
         const val LIST_STILL = 0.01
         const val MAX_TIER_TAPS = 6
+        const val MAX_HUD_TAPS = 3
+        const val HUD_TAP_GAP_MS = 20_000L
     }
 }

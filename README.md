@@ -204,8 +204,8 @@ pantalla. Si algo no encaja, recalibra esa pantalla en el editor.
 ## Problemas conocidos
 
 - **Contador de monedas en «/min»:** el juego a veces muestra arriba las monedas por minuto
-  en vez del saldo. El bot ignora esa lectura. No afecta a las partidas que empieza él, pero
-  si lo arrancas a mitad de partida no podrá medir sus monedas.
+  en vez del saldo. El bot lo pulsa para que vuelva a mostrar el saldo (como mucho 3 veces
+  por partida).
 - **Partidas largas:** en un nivel donde la torre aguanta horas, cada duelo de estrategias
   tarda uno o dos días. En los niveles donde muere pronto aprende varias veces por noche.
 - **`uiautomator` apaga el bot:** si usas `adb shell uiautomator dump` u otra herramienta de
