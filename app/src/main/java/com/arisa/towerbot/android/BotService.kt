@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import com.arisa.towerbot.core.BotEngine
+import com.arisa.towerbot.core.DeadlineDevice
+import com.arisa.towerbot.core.DeadlineReader
 import com.arisa.towerbot.core.NumberParser
 import com.arisa.towerbot.core.ScreenClassifier
 import com.arisa.towerbot.ui.MainActivity
@@ -128,7 +130,7 @@ class BotService : AccessibilityService() {
         val pkg = device.foregroundPackage()
         withContext(Dispatchers.Main) { overlay.setVisible(false) }
         delay(350)
-        val shot = device.capture() as? BitmapShot
+        val shot = DeadlineDevice(device).capture() as? BitmapShot
         withContext(Dispatchers.Main) { overlay.setVisible(true) }
         if (shot == null) {
             notify("No pude capturar la pantalla")
@@ -149,7 +151,7 @@ class BotService : AccessibilityService() {
     private fun identify() = scope.launch {
         withContext(Dispatchers.Main) { overlay.setVisible(false) }
         delay(350)
-        val shot = device.capture()
+        val shot = DeadlineDevice(device).capture()
         withContext(Dispatchers.Main) { overlay.setVisible(true) }
         if (shot == null) return@launch notify("No pude capturar la pantalla")
         val store = TowerBotApp.store
@@ -157,18 +159,19 @@ class BotService : AccessibilityService() {
         val match = ScreenClassifier.classify(shot.frame, store.calibration.screens, s.matchThreshold, s.matchShape)
         val best = ScreenClassifier.rank(shot.frame, store.calibration.screens).firstOrNull()
         // Lo que lee en las zonas de oleada y monedas, para comprobar que lee bien.
+        val reader = DeadlineReader(TextReader)
         val readings = match?.screen?.let { screen ->
             listOfNotNull(
                 screen.waveBox?.let { box ->
-                    val text = TextReader.read(shot, box)
+                    val text = reader.read(shot, box)
                     "oleada: «$text» → ${text?.let(NumberParser::parseInt)}"
                 },
                 screen.coinsBox?.let { box ->
-                    val text = TextReader.read(shot, box)
+                    val text = reader.read(shot, box)
                     "monedas: «$text» → ${text?.let(NumberParser::parse)?.let(NumberParser::format)}"
                 },
                 screen.tierBox?.let { box ->
-                    val text = TextReader.read(shot, box)
+                    val text = reader.read(shot, box)
                     "nivel: «$text» → ${text?.let(NumberParser::parseTier)}"
                 },
             ).joinToString("") { "\n$it" }
