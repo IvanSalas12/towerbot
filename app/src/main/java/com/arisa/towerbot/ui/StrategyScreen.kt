@@ -34,6 +34,7 @@ fun StrategyScreen(onBack: () -> Unit) {
         TopBar("Estrategia", onBack)
 
         Section("Cómo aprende") {
+            Text("Objetivo actual: " + if (settings.waveLearningEnabled) "más oleadas por partida" else "más monedas por minuto", style = MaterialTheme.typography.labelLarge)
             Text(
                 "Cada nivel aprende por separado. En cada uno juega la estrategia campeona y una retadora " +
                     "(la campeona con un cambio pequeño), alternándolas. Si sabe dónde suele morir la torre, " +
@@ -46,6 +47,14 @@ fun StrategyScreen(onBack: () -> Unit) {
                     "Sólo cuentan las partidas que el bot vio enteras.",
                 style = MaterialTheme.typography.bodySmall,
             )
+        }
+
+        calibration.cards?.let { cards ->
+            Section("Mis cartas · ${cards.slots} espacios") {
+                Text("Mazo inicial: ${cards.initialDeck.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                cards.owned.forEach { Text("${it.name} · ${it.stars} ★", style = MaterialTheme.typography.bodySmall) }
+                Text("Inventario revisado: ${formatTime(cards.reviewedAt)}. Lee cartas nuevas y estrellas entre partidas. Si cambia la distribución de la pantalla, hay que actualizar la calibración.", style = MaterialTheme.typography.bodySmall)
+            }
         }
 
         Section("Niveles") {
@@ -66,7 +75,7 @@ fun StrategyScreen(onBack: () -> Unit) {
             Section("Campeona") { Text("Todavía no ha jugado ninguna partida: empieza con el plan de los PDF.") }
         }
         brain.tiers.toSortedMap().forEach { (tier, learner) ->
-            TierLearner(tier, learner, available, settings.minPairs, settings.maxPairs)
+            TierLearner(tier, learner, available, settings.minPairs, settings.maxPairs, if (settings.waveLearningEnabled) "oleadas" else "monedas/min")
         }
 
         Section("Empezar de cero") {
@@ -80,19 +89,21 @@ fun StrategyScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun TierLearner(tier: Int, learner: LearnerState, available: Set<Upgrade>, minPairs: Int, maxPairs: Int) {
+private fun TierLearner(tier: Int, learner: LearnerState, available: Set<Upgrade>, minPairs: Int, maxPairs: Int, unit: String) {
     Section("Nivel $tier · campeona ${learner.champion.id} (generación ${learner.generation})") {
         PhaseTable(learner.champion, available)
+        learner.champion.cards?.let { Text("Cartas campeonas: ${it.joinToString()}", style = MaterialTheme.typography.bodySmall) }
         learner.challenger?.let { ch ->
             Text("Retadora ${ch.id}", style = MaterialTheme.typography.labelLarge)
             Text("Cambio: ${ch.note}", style = MaterialTheme.typography.bodySmall)
+            ch.cards?.let { Text("Cartas retadoras: ${it.joinToString()}", style = MaterialTheme.typography.bodySmall) }
             val pairs = learner.championScores.zip(learner.challengerScores)
             if (pairs.isEmpty()) {
                 Text("Aún sin pares completos.", style = MaterialTheme.typography.bodySmall)
             } else {
                 pairs.forEachIndexed { i, (a, b) ->
                     Text(
-                        "Par ${i + 1}: campeona ${NumberParser.format(a)}/min · retadora ${NumberParser.format(b)}/min",
+                        "Par ${i + 1}: campeona ${NumberParser.format(a)} · retadora ${NumberParser.format(b)} $unit",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }

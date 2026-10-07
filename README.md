@@ -32,6 +32,10 @@ el teléfono, sin PC y sin internet.
   vuelve a abrir el juego si se cierra.
 - **Te lo cuenta todo:** cada partida con su nivel, oleada, monedas y monedas por minuto, y
   un diario de qué decidió y por qué.
+- **Anuncios opcionales:** interruptores separados en Ajustes para el bonus de monedas y
+  las gemas. Pulsa sólo los botones disponibles calibrados, espera el video y cierra los
+  finales de anuncio que reconoce. Si un final no está calibrado, busca la X o un botón
+  «Cerrar»/«Skip» por su cuenta, pasados 30 s. La recompensa la entrega el juego.
 
 ## Cómo decide (sin IA)
 
@@ -109,10 +113,13 @@ de arriba y el tiempo que estuvo mirando.
 3. Abre TowerBot y pulsa **Activar**: Ajustes › Accesibilidad › TowerBot › activar.
    - Si Android dice *«Ajuste restringido»*: en Info de la app › menú ⋮ › **Permitir ajustes
      restringidos**, y vuelve a intentarlo.
-4. Aparece una burbuja flotante con tres botones:
+4. Aparece una burbuja flotante con cuatro botones:
    - **▶** jugar o parar;
    - **📷** capturar la pantalla para calibrar;
    - **🔍** "¿qué pantalla ves?", para comprobar la calibración.
+   - **✕** cerrar TowerBot del todo: pulsada dos veces seguidas, para el bot, quita la burbuja
+     y apaga el servicio de accesibilidad. Para volver a tenerla, abre TowerBot y pulsa
+     **Activar**.
 
    La burbuja se arrastra desde cualquier botón.
 
@@ -139,6 +146,10 @@ Estas imágenes muestran qué marcar en cada una, con los mismos nombres que usa
 | Mejoras que solo se ven bajando la lista | Baja del todo, captura y márcalas como *Abajo* |
 | **Fin de partida** | *Ancla*: el título o un botón. *Toque*: VOLVER A INTENTARLO. *Oleada*, *Nivel* y *Monedas* (las ganadas). *INICIO*: el botón INICIO |
 | **Ventanas emergentes** (ofertas, avisos) | *Ancla* en la ventana y *Toque* en su X |
+| **Anuncios disponibles** (durante la partida) | *Anuncio monedas* sobre «Inactiva» del bonus; *Anuncio gemas* sobre el icono de video disponible, sin el contador de gemas |
+| **Confirmación de anuncio de monedas** | *Ancla* en el título, *Toque* en «+20 min», *Bonus inactivo* sobre «Inactiva» e *INICIO / Cerrar oferta* en la X |
+| **Anuncio terminado** | *Ancla* sobre la X disponible y *Toque* en su centro. Si el ancla no cubre el toque (por ejemplo, el panel de abajo de un anuncio, que se ve durante todo el video), sólo pulsa cuando ve una X junto al toque. Añade capturas de distintos cierres si cambian |
+| **Reclamar premio del anuncio** | *Ancla* sobre «RECLAMAR» y *Toque* en ese botón |
 
 Al marcar *Oleada*, *Monedas* o *Nivel*, el editor te enseña lo que ha leído: comprueba que es
 correcto. Luego ve por las pantallas del juego pulsando 🔍: debe decir "Veo: …" en cada una y
@@ -193,6 +204,9 @@ pantalla. Si algo no encaja, recalibra esa pantalla en el editor.
     par a par y el diario;
   - un botón para volver al plan inicial.
 - **Ajustes:**
+  - **Anuncios con recompensa:** activar monedas y gemas por separado. El tiempo de videos
+    cuenta en monedas/min; al cambiar los interruptores se reinician los pares pendientes
+    del duelo, conservando campeona, retadora e historial.
   - **Horario:** la hora de parar.
   - **Seguridad:** la temperatura máxima de la batería.
   - **Compras:** cada cuánto compra.
@@ -202,6 +216,14 @@ pantalla. Si algo no encaja, recalibra esa pantalla en el editor.
   - **Visión:** los umbrales para reconocer pantallas.
 
 ## Problemas conocidos
+
+- **Cierre de anuncio nuevo:** si ningún cierre calibrado encaja, pasados 30 s del inicio
+  del anuncio busca por su cuenta. Primero, los botones que el anuncio nombra por accesibilidad
+  («Reanudar» antes que «Cerrar» o «Skip»). Después, una X dibujada en una esquina de arriba,
+  que tiene que verse dos veces seguidas en el mismo sitio. Nunca pulsa Atrás ni botones de
+  instalar, y no insiste más de 3 veces en el mismo sitio. Si aun así se atasca, añádelo con 📷
+  como «Anuncio terminado»; `adb logcat -s TowerBot` muestra los botones con nombre que vio.
+  No da por confirmadas gemas ni multiplica monedas por su cuenta.
 
 - **Contador de monedas en «/min»:** el juego a veces muestra arriba las monedas por minuto
   en vez del saldo. El bot lo pulsa para que vuelva a mostrar el saldo (como mucho 3 veces
@@ -216,8 +238,45 @@ pantalla. Si algo no encaja, recalibra esa pantalla en el editor.
 - **Otro teléfono u otro idioma:** hay que recalibrar.
 - **Ver qué hace:** `adb logcat -s TowerBot` muestra cada paso (qué busca, qué compra, qué
   lee).
+- **Medir el bucle:** cada minuto deja en ese log una línea `MEDIDA` con las capturas,
+  lecturas, toques, compras e intentos, y los segundos entre partidas y por pantalla. Sirve
+  para comparar versiones con números.
 
 ## Desarrollo
+
+### Tienda y cartas (0.4.0)
+
+En Ajustes puedes activar **Revisar 20 gemas en Tienda entre partidas**, junto con
+**Anuncios para conseguir gemas**. Al arrancar desde Inicio y después de cada muerte,
+TowerBot entra en Tienda, busca el recuadro gratuito de 20 gemas y pulsa su botón de video
+sólo si coincide con el aspecto disponible. Si aparece un contador o no está el regalo,
+vuelve a Batalla. Su disponibilidad depende del juego; comprobarlo no reinicia el plazo.
+
+**Probar estrategias con mis cartas** lee el inventario, estrellas y cartas nuevas antes
+de cada partida. Usa los espacios ya desbloqueados y verifica el mazo activo antes de
+empezar. Cada retadora cambia una carta o el plan de compras; conserva el otro componente.
+**Aprender para alcanzar más oleadas** usa la oleada final como puntuación del duelo por
+nivel, manteniendo monedas/min en el historial. Un cambio de objetivo, cartas, estrellas
+o capacidad reinicia los pares y conserva la estrategia de compras campeona.
+
+Para no perder tiempo entre partidas: la Tienda se revisa como mucho cada 20 minutos, y el
+inventario de cartas se lee al arrancar el bot y luego cada 6 horas. Al cambiar de mazo sólo
+toca las cartas que sobran o faltan. Si la próxima estrategia usa el mazo que ya está puesto,
+reintenta desde el fin de partida sin pasar por Cartas. Durante la partida, un botón que
+quedó gris por falta de dinero no se vuelve a pulsar hasta que se ilumina. Si se ilumina
+antes de acabar su espera de 10 s, se compra en ese momento.
+
+El historial incluye el mazo verificado y la medida usada en el duelo. Una partida que
+ya estaba empezada, un mazo sin verificar o cambios de configuración durante una ronda
+no cuentan. Estrategia muestra el inventario y los mazos campeones y retadores.
+
+La calibración necesita las pantallas `STORE` y `CARDS`, `storeAd` (pestañas, zona de
+desplazamiento, recuadro gratis y botón disponible) y `cards` (pestañas, zona de inventario,
+columnas, geometría de carta, títulos de espacios activos y contador). La distribución
+se calibra por teléfono; el inventario se actualiza durante el juego. Las zonas de
+inventario excluyen los botones para comprar cartas y espacios. Si no puede leer todo el
+inventario o comprobar la capacidad/mazo, espera en Cartas y muestra el problema.
+El perfil actualizado para este teléfono es `calibraciones/1080x2400-es-0.4.json`.
 
 ```
 ./gradlew testDebugUnitTest assembleDebug        # pruebas + APK para teléfono (ARM)

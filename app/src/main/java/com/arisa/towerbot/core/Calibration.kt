@@ -7,6 +7,18 @@ enum class ScreenRole(val label: String) {
     IN_RUN("En partida"),
     GAME_OVER("Fin de partida"),
     POPUP("Ventana emergente"),
+    AD_PLAYING("Anuncio en reproducción"),
+    AD_CLOSE("Anuncio terminado (cerrar)"),
+    AD_CLAIM("Reclamar premio del anuncio"),
+    COIN_AD_OFFER("Confirmación de anuncio de monedas"),
+    GEM_AD_OFFER("Confirmación de anuncio de gemas"),
+    STORE("Tienda"),
+    CARDS("Cartas"),
+}
+
+enum class AdReward(val label: String) {
+    COINS("Bonus de monedas"),
+    GEMS("Gemas"),
 }
 
 /**
@@ -33,6 +45,8 @@ data class ScreenDef(
     val homeTap: Pt? = null,
     val tierPrev: Pt? = null,
     val tierNext: Pt? = null,
+    /** Confirmación de monedas: aspecto de «Inactiva», para salir si ya hay bonus. */
+    val adAvailable: Template? = null,
 )
 
 /**
@@ -62,6 +76,10 @@ data class Calibration(
     val tabHeaders: Map<Tab, Template> = emptyMap(),
     /** La parte visible de la lista de mejoras, entre el título y las pestañas. */
     val upgradeList: Box? = null,
+    /** Aspecto del botón cuando el anuncio está disponible, nunca su contador. */
+    val adButtons: Map<AdReward, Template> = emptyMap(),
+    val storeAd: StoreAdLayout? = null,
+    val cards: CardLayout? = null,
 ) {
     fun availableUpgrades(): Set<Upgrade> = slots.map { it.upgrade }.toSet()
 
@@ -169,13 +187,16 @@ object ScreenClassifier {
      * ¿Está el botón al máximo? Medido en The Tower (azul menos rojo, de media):
      * comprable ≈ 65, sin dinero ≈ 50 (gris azulado), "Máx" ≈ -12 (dorado/marrón).
      */
-    fun looksMaxed(frame: Frame, button: Box): Boolean {
+    fun looksMaxed(frame: Frame, button: Box): Boolean = tone(frame, button) < MAXED_BLUE_MARGIN
+
+    /** Azul menos rojo de media: alto si se puede comprar, más bajo si falta dinero o está al máximo. */
+    fun tone(frame: Frame, button: Box): Int {
         val b = button.clampTo(frame.width, frame.height)
-        if (b.width <= 0 || b.height <= 0) return false
+        if (b.width <= 0 || b.height <= 0) return Int.MAX_VALUE
         val cells = Template.sample(frame, b, 12).rgb
         val red = cells.sumOf { (it shr 16) and 0xFF } / cells.size
         val blue = cells.sumOf { it and 0xFF } / cells.size
-        return blue - red < MAXED_BLUE_MARGIN
+        return blue - red
     }
 
     private const val COARSE_STEP = 6

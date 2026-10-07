@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.arisa.towerbot.android.TowerBotApp
 import com.arisa.towerbot.core.Tab
+import com.arisa.towerbot.core.AdReward
 
 @Composable
 fun CalibrationScreen(onBack: () -> Unit) {
@@ -33,6 +34,9 @@ fun CalibrationScreen(onBack: () -> Unit) {
                 "Mejoras: para cada pestaña (Ataque, Defensa, Utilidad) abre la pestaña, sube la lista del todo y captura. Marca «Pestaña» sobre su botón, «Título» sobre el título de color del panel y «Mejora» sobre cada botón que quieras que el bot compre. Si alguna sólo se ve bajando la lista, baja del todo, captura y márcala como «abajo».",
                 "Fin de partida: deja que la torre muera, captura. Ancla = el título o el botón de reintentar, Toque = REINTENTAR, y «Monedas» sobre las monedas ganadas.",
                 "Ventanas emergentes (ofertas, avisos): captura, Ancla en la ventana y Toque en su X.",
+                "Anuncios: con el bonus o las gemas disponibles, captura y elige «Sólo mejoras». Marca «Anuncio monedas» o «Anuncio gemas» sobre su botón. Al terminar un video, captura como «Anuncio terminado»: Ancla sobre el cierre disponible y Toque en su X. Puedes añadir distintos finales de anuncios.",
+                "Si el botón de bonus abre una confirmación, captura como «Confirmación de anuncio de monedas»: Ancla en el título, Toque en «+20 min» e «INICIO / Cerrar oferta» en la X. No marques el botón del paquete de pago.",
+                "Premio de gemas: captura como «Reclamar premio del anuncio», Ancla en «RECLAMAR» y Toque en ese botón. Así cobra las gemas y vuelve a jugar.",
                 "Comprueba con 🔍 en la burbuja que el bot reconoce cada pantalla.",
             ).forEachIndexed { i, s -> Text("${i + 1}. $s", style = MaterialTheme.typography.bodySmall) }
             Text("Juego: ${calibration.gamePackage}", style = MaterialTheme.typography.bodySmall)
@@ -56,6 +60,17 @@ fun CalibrationScreen(onBack: () -> Unit) {
                         Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
                     }
                     TextButton(onClick = { store.updateCalibration { c -> c.copy(screens = c.screens - s) } }) { Text("Borrar") }
+                }
+            }
+        }
+
+        Section("Botones de anuncios") {
+            AdReward.entries.forEach { reward ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("${reward.label}: " + if (reward in calibration.adButtons) "calibrado" else "sin calibrar", Modifier.weight(1f))
+                    if (reward in calibration.adButtons) TextButton(onClick = {
+                        store.updateCalibration { it.copy(adButtons = it.adButtons - reward) }
+                    }) { Text("Borrar") }
                 }
             }
         }

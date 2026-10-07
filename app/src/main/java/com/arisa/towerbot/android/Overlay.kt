@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.os.SystemClock
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -14,8 +15,8 @@ import android.widget.TextView
 import kotlin.math.abs
 
 /**
- * La burbuja flotante sobre el juego: arrancar/parar, capturar para calibrar y
- * preguntar qué pantalla ve el bot. Se arrastra desde cualquier botón.
+ * La burbuja flotante sobre el juego: arrancar/parar, capturar para calibrar,
+ * preguntar qué pantalla ve el bot y cerrar TowerBot. Se arrastra desde cualquier botón.
  * Mientras el bot juega, mantiene la pantalla encendida.
  */
 class Overlay(
@@ -23,6 +24,7 @@ class Overlay(
     private val onToggle: () -> Unit,
     private val onCapture: () -> Unit,
     private val onIdentify: () -> Unit,
+    private val onClose: () -> Unit,
 ) {
     private val wm = context.getSystemService(WindowManager::class.java)
     private val density = context.resources.displayMetrics.density
@@ -30,6 +32,7 @@ class Overlay(
     private lateinit var toggle: TextView
     private lateinit var note: TextView
     private val hideNote = Runnable { note.visibility = View.GONE }
+    private var closeArmedAt = 0L
     private val extras = mutableListOf<View>()
     private var shown = false
 
@@ -60,6 +63,8 @@ class Overlay(
         root.addView(toggle)
         extras += button("📷", onCapture)
         extras += button("🔍", onIdentify)
+        // Escondido mientras juega, como los demás: el bot no lo confunde con la X de un anuncio.
+        extras += button("✕", ::askClose)
         extras.forEach(root::addView)
         note = TextView(context).apply {
             setTextColor(Color.WHITE)
@@ -92,6 +97,14 @@ class Overlay(
         note.visibility = View.VISIBLE
         note.removeCallbacks(hideNote)
         note.postDelayed(hideNote, 6000)
+    }
+
+    /** Pide un segundo toque: un toque suelto (tuyo o del bot) no cierra nada. */
+    private fun askClose() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - closeArmedAt < CLOSE_CONFIRM_MS) return onClose()
+        closeArmedAt = now
+        showMessage("Toca ✕ otra vez para cerrar TowerBot del todo")
     }
 
     fun setVisible(visible: Boolean) {
@@ -146,5 +159,9 @@ class Overlay(
                 true
             }
         }
+    }
+
+    private companion object {
+        const val CLOSE_CONFIRM_MS = 4000L
     }
 }

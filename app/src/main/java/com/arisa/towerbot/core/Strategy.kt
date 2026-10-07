@@ -12,6 +12,7 @@ data class Strategy(
     val phases: List<Phase>,
     val parentId: String? = null,
     val note: String = "",
+    val cards: List<String>? = null,
 ) {
     fun phaseIndexFor(wave: Int): Int {
         val i = phases.indexOfFirst { wave <= it.untilWave }

@@ -35,7 +35,7 @@ class BotService : AccessibilityService() {
 
     override fun onServiceConnected() {
         device = AndroidDevice(this)
-        overlay = Overlay(this, onToggle = { toggleBot() }, onCapture = { captureForCalibration() }, onIdentify = { identify() })
+        overlay = Overlay(this, onToggle = { toggleBot() }, onCapture = { captureForCalibration() }, onIdentify = { identify() }, onClose = { closeCompletely() })
         overlay.show()
         _instance.value = this
         // Todo lo que hace el bot queda en logcat (adb logcat -s TowerBot) para depurar.
@@ -80,6 +80,19 @@ class BotService : AccessibilityService() {
     }
 
     fun toggleBot() = if (isRunning) stopBot() else startBot()
+
+    /**
+     * Para el bot, quita la burbuja y apaga el servicio de accesibilidad. Para volver a
+     * tenerla: abre TowerBot y pulsa Activar.
+     */
+    private fun closeCompletely() {
+        Log.i(TAG, "Cerrado desde la burbuja")
+        shutdown()
+        disableSelf()
+    }
+    fun setAutomationOverlayVisible(visible: Boolean) {
+        mainExecutor.execute { overlay.setVisible(visible) }
+    }
 
     fun startBot() {
         if (isRunning) return
