@@ -5,6 +5,7 @@ import com.arisa.towerbot.core.BotSettings
 import com.arisa.towerbot.core.BrainState
 import com.arisa.towerbot.core.Calibration
 import com.arisa.towerbot.core.RunRecord
+import com.arisa.towerbot.core.CardLayout
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.update
@@ -53,6 +54,7 @@ class Store(private val dir: File) : BotMemory {
         _calibration.update(change)
         save("calibration.json", Calibration.serializer(), _calibration.value)
     }
+    override fun updateCards(cards: CardLayout) = updateCalibration { it.copy(cards = cards) }
 
     fun updateSettings(change: (BotSettings) -> BotSettings) {
         _settings.update(change)

@@ -1,10 +1,13 @@
 package com.arisa.towerbot.core
 
 import kotlinx.serialization.Serializable
+import kotlin.math.abs
 
 /** Un punto en píxeles reales de la pantalla del teléfono. */
 @Serializable
-data class Pt(val x: Int, val y: Int)
+data class Pt(val x: Int, val y: Int) {
+    fun near(other: Pt, distance: Int) = abs(x - other.x) <= distance && abs(y - other.y) <= distance
+}
 
 /** Un rectángulo en píxeles reales de la pantalla del teléfono. */
 @Serializable
@@ -19,6 +22,10 @@ data class Box(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     )
 
     fun shifted(dy: Int) = Box(left, top + dy, right, bottom + dy)
+
+    /** [p] está dentro, o a menos de [margin] píxeles del borde. */
+    fun covers(p: Pt, margin: Int = 0) =
+        p.x in left - margin..right + margin && p.y in top - margin..bottom + margin
 
     fun overlaps(other: Box) =
         left < other.right && other.left < right && top < other.bottom && other.top < bottom

@@ -6,11 +6,15 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.Path
+import android.graphics.Rect
 import android.os.BatteryManager
 import android.os.Build
 import android.os.SystemClock
 import android.util.Log
 import android.view.Display
+import android.view.accessibility.AccessibilityNodeInfo
+import com.arisa.towerbot.core.AdExit
+import com.arisa.towerbot.core.AdExits
 import com.arisa.towerbot.core.ArrayFrame
 import com.arisa.towerbot.core.Device
 import com.arisa.towerbot.core.Frame
@@ -19,6 +23,7 @@ import com.arisa.towerbot.core.Shot
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import java.io.File
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 
@@ -41,6 +46,9 @@ class BitmapShot(val bitmap: Bitmap) : Shot {
 
 /** El teléfono de verdad, manejado a través del servicio de accesibilidad. */
 class AndroidDevice(private val service: AccessibilityService) : Device {
+    override fun setOverlayVisible(visible: Boolean) {
+        (service as? BotService)?.setAutomationOverlayVisible(visible)
+    }
     /** Android limita las capturas del servicio: una cada 1 s en Android 11, cada 1/3 s después. */
     private val minGapMs = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 350L else 1050L
     private var lastShotAt = 0L
@@ -150,12 +158,65 @@ class AndroidDevice(private val service: AccessibilityService) : Device {
         return pkg
     }
 
+    private var lastExitLogAt = 0L
+
+    override fun adExits(): List<AdExit> {
+        val roots = runCatching { service.windows.mapNotNull { it.root } }.getOrNull().orEmpty()
+            .ifEmpty { listOfNotNull(service.rootInActiveWindow) }
+        val exits = mutableListOf<AdExit>()
+        val seen = mutableListOf<String>()
+        val bounds = Rect()
+        val screen = service.resources.displayMetrics
+        fun walk(node: AccessibilityNodeInfo, depth: Int) {
+            if (depth > 40) return
+            val label = listOfNotNull(node.text, node.contentDescription, node.viewIdResourceName?.substringAfter('/'))
+                .joinToString(" ").trim()
+            if (label.isNotEmpty() && node.isVisibleToUser) {
+                node.getBoundsInScreen(bounds)
+                seen += "«$label» ${bounds.toShortString()}"
+                val small = bounds.width() in 1..screen.widthPixels * 2 / 5 && bounds.height() in 1..screen.heightPixels / 5
+                AdExits.kindOf(label)?.takeIf { small }?.let { exits += AdExit(Pt(bounds.centerX(), bounds.centerY()), it, label) }
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let { walk(it, depth + 1) }
+        }
+        for (root in roots) {
+            val pkg = root.packageName?.toString()
+            if (pkg == service.packageName || pkg == "com.android.systemui") continue
+            walk(root, 0)
+        }
+        // Lo que ve en los anuncios queda en logcat: así se entiende uno que no sabe cerrar.
+        val t = SystemClock.elapsedRealtime()
+        if (exits.isNotEmpty() || t - lastExitLogAt > 30_000) {
+            lastExitLogAt = t
+            Log.d(BotService.TAG, "Anuncio, botones con nombre: ${seen.take(40).joinToString(" · ").ifEmpty { "ninguno" }}")
+        }
+        return exits
+    }
+
+    override fun keepCapture(shot: Shot, name: String) {
+        val bitmap = (shot as? BitmapShot)?.bitmap ?: return
+        runCatching {
+            val dir = File(service.filesDir, "captures").apply { mkdirs() }
+            File(dir, "${name}_${System.currentTimeMillis()}.png").outputStream().use {
+                bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+            // Sólo las últimas: una noche atascada no debe llenar el teléfono.
+            dir.listFiles { f -> f.name.startsWith("${name}_") }.orEmpty()
+                .sortedByDescending { it.name }.drop(MAX_KEPT).forEach { it.delete() }
+            Log.i(BotService.TAG, "Captura guardada: captures/${name}_…png")
+        }.onFailure { Log.w(BotService.TAG, "No pude guardar la captura: $it") }
+    }
+
     override fun ownPackage(): String = service.packageName
 
     override fun batteryTempC(): Float? {
         val battery = service.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED)) ?: return null
         val tenths = battery.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
         return if (tenths == Int.MIN_VALUE) null else tenths / 10f
+    }
+
+    private companion object {
+        const val MAX_KEPT = 10
     }
 
     private class ScreenshotError(val code: Int) : Exception("takeScreenshot falló: $code")

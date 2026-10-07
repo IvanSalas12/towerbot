@@ -13,8 +13,8 @@ android {
         // takeScreenshot() del servicio de accesibilidad existe desde Android 11.
         minSdk = 30
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.4.0"
         // Sólo procesadores de teléfono: el lector de números pesa mucho por cada tipo.
         if (!project.hasProperty("allAbis")) ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }

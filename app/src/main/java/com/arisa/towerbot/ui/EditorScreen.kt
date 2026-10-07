@@ -55,6 +55,7 @@ import com.arisa.towerbot.android.TextReader
 import com.arisa.towerbot.android.TowerBotApp
 import com.arisa.towerbot.core.Box as ScreenBox
 import com.arisa.towerbot.core.ListPos
+import com.arisa.towerbot.core.AdReward
 import com.arisa.towerbot.core.NumberParser
 import com.arisa.towerbot.core.Pt
 import com.arisa.towerbot.core.ScreenDef
@@ -73,12 +74,15 @@ private enum class Tool(val label: String, val isRect: Boolean, val hint: String
     WAVE("Oleada", true, "Arrastra un rectángulo justo sobre el número de oleada."),
     COINS("Monedas", true, "Fin de partida: las monedas ganadas. En partida: el contador de monedas de arriba, sin el icono."),
     TIER("Nivel", true, "Arrastra un rectángulo sobre «Nivel N» (en el inicio, en partida o en el fin de partida)."),
-    HOME("INICIO", false, "Fin de partida: toca el botón INICIO. Lo usa para ir a cambiar de nivel."),
+    HOME("INICIO / Cerrar oferta", false, "Fin de partida: INICIO. Confirmación de anuncio: su X, para cerrarla después del anuncio o si esa recompensa está desactivada."),
     TIER_PREV("Nivel ‹", false, "Inicio: toca la flecha que baja de nivel."),
     TIER_NEXT("Nivel ›", false, "Inicio: toca la flecha que sube de nivel."),
     TAB("Pestaña", false, "Elige la pestaña y toca su botón."),
     HEADER("Título", true, "Con esa pestaña abierta, arrastra un rectángulo sobre su título («MEJORAS DE ATAQUE»…)."),
     UPGRADE("Mejora", true, "Elige pestaña y posición de la lista, y arrastra un rectángulo sobre el botón de compra."),
+    COIN_AD("Anuncio monedas", true, "Marca sólo el botón del anuncio de monedas cuando está disponible, sin incluir un contador cambiante."),
+    GEM_AD("Anuncio gemas", true, "Marca sólo el botón del anuncio de gemas cuando está disponible, sin incluir un contador cambiante."),
+    AD_AVAILABLE("Bonus inactivo", true, "En la confirmación de monedas, marca el texto «Inactiva». Así cierra la oferta cuando el bonus ya está activo."),
 }
 
 private data class SlotDraft(val upgrade: Upgrade, val tab: Tab, val pos: ListPos, val box: ScreenBox)
@@ -128,9 +132,11 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
     var homeTap by remember { mutableStateOf<Pt?>(null) }
     var tierPrev by remember { mutableStateOf<Pt?>(null) }
     var tierNext by remember { mutableStateOf<Pt?>(null) }
+    var adAvailable by remember { mutableStateOf<ScreenBox?>(null) }
     val tabs = remember { mutableStateMapOf<Tab, Pt>() }
     val headers = remember { mutableStateMapOf<Tab, ScreenBox>() }
     val slots = remember { mutableStateListOf<SlotDraft>() }
+    val adButtons = remember { mutableStateMapOf<AdReward, ScreenBox>() }
     var currentTab by remember { mutableStateOf(Tab.ATTACK) }
     var currentPos by remember { mutableStateOf(ListPos.TOP) }
     var pendingSlot by remember { mutableStateOf<ScreenBox?>(null) }
@@ -163,6 +169,9 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
             }
             Tool.UPGRADE -> pendingSlot = box
             Tool.HEADER -> headers[currentTab] = box
+            Tool.COIN_AD -> adButtons[AdReward.COINS] = box
+            Tool.GEM_AD -> adButtons[AdReward.GEMS] = box
+            Tool.AD_AVAILABLE -> adAvailable = box
             else -> {}
         }
     }
@@ -191,6 +200,9 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
             Tool.TAB -> tabs.remove(currentTab)
             Tool.HEADER -> headers.remove(currentTab)
             Tool.UPGRADE -> slots.removeLastOrNull()
+            Tool.COIN_AD -> adButtons.remove(AdReward.COINS)
+            Tool.GEM_AD -> adButtons.remove(AdReward.GEMS)
+            Tool.AD_AVAILABLE -> adAvailable = null
         }
     }
 
@@ -205,7 +217,11 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
             error = "Marca al menos un Ancla para que el bot reconozca esta pantalla."
             return
         }
-        if (r == null && slots.isEmpty() && tabs.isEmpty() && headers.isEmpty()) {
+        if (r in listOf(ScreenRole.AD_CLOSE, ScreenRole.AD_CLAIM, ScreenRole.COIN_AD_OFFER, ScreenRole.GEM_AD_OFFER) && tap == null) {
+            error = "Marca «Toque» en el cierre disponible o en el botón de ver el anuncio."
+            return
+        }
+        if (r == null && slots.isEmpty() && tabs.isEmpty() && headers.isEmpty() && adButtons.isEmpty()) {
             error = "No has marcado nada. Elige qué pantalla es o marca pestañas y mejoras."
             return
         }
@@ -213,7 +229,8 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
         TowerBotApp.store.updateCalibration { c ->
             var next = c.copy(screenWidth = iw, screenHeight = ih)
             request.gamePackage
-                ?.takeIf { it != context.packageName && it != "com.android.systemui" }
+                ?.takeIf { it != context.packageName && it != "com.android.systemui" &&
+                    r != ScreenRole.AD_PLAYING && r != ScreenRole.AD_CLOSE }
                 ?.let { next = next.copy(gamePackage = it) }
             if (r != null) {
                 next = next.copy(
@@ -229,11 +246,13 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
                         homeTap = homeTap,
                         tierPrev = tierPrev,
                         tierNext = tierNext,
+                        adAvailable = adAvailable?.let { Template.sample(frame, it) },
                     ),
                 )
             }
             val newSlots = slots.map { UpgradeSlot(it.upgrade, it.tab, it.pos, it.box, Template.sample(frame, it.box, 32)) }
             next.copy(
+                adButtons = next.adButtons + adButtons.mapValues { Template.sample(frame, it.value) },
                 tabs = next.tabs + tabs,
                 tabHeaders = next.tabHeaders + headers.mapValues { (_, box) -> Template.sample(frame, box) },
                 slots = next.slots.filter { old -> newSlots.none { it.upgrade == old.upgrade } } + newSlots,
@@ -255,7 +274,7 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
                 FilterChip(role == r, onClick = { role = r }, label = { Text(r.label) })
             }
         }
-        if (role == ScreenRole.POPUP) {
+        if (role == ScreenRole.POPUP || role == ScreenRole.AD_CLOSE || role == ScreenRole.AD_PLAYING) {
             OutlinedTextField(
                 name, { name = it }, label = { Text("Nombre (p. ej. «Oferta»)") },
                 singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
@@ -306,6 +325,8 @@ fun EditorScreen(request: CaptureRequest, onDone: () -> Unit) {
                     dstSize = IntSize((iw * fit.scale).toInt(), (ih * fit.scale).toInt()),
                 )
                 anchors.forEach { mark(fit, measurer, it, Color.Green, "ancla") }
+                adButtons.forEach { (reward, box) -> mark(fit, measurer, box, Color.Magenta, reward.label) }
+                adAvailable?.let { mark(fit, measurer, it, Color.Magenta, "bonus inactivo") }
                 waveBox?.let { mark(fit, measurer, it, Color.Cyan, "oleada") }
                 coinsBox?.let { mark(fit, measurer, it, Color.Yellow, "monedas") }
                 tierBox?.let { mark(fit, measurer, it, Color.Cyan, "nivel") }

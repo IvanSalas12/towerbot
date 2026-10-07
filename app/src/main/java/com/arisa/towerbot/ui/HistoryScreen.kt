@@ -68,6 +68,8 @@ fun HistoryScreen(onBack: () -> Unit) {
                             (if (r.counted) " · cuenta en el duelo" else ""),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    if (r.adAttempts > 0) Text("${r.adAttempts} anuncios solicitados", style = MaterialTheme.typography.bodySmall)
+                    if (r.cards.isNotEmpty()) Text("Cartas: ${r.cards.joinToString()} · duelo en ${r.learningMetric}", style = MaterialTheme.typography.bodySmall)
                 }
                 HorizontalDivider()
             }

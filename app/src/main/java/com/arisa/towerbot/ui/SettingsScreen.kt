@@ -22,6 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import com.arisa.towerbot.android.TowerBotApp
 import com.arisa.towerbot.core.BotSettings
+import com.arisa.towerbot.core.AdReward
+import com.arisa.towerbot.core.ScreenRole
 import com.arisa.towerbot.core.TierMode
 import kotlin.math.roundToInt
 
@@ -69,6 +71,31 @@ fun SettingsScreen(onBack: () -> Unit) {
             )
         }
 
+        Section("Anuncios con recompensa") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Anuncios para aumentar monedas", Modifier.weight(1f))
+                Switch(settings.coinAdsEnabled, { on -> update { it.copy(coinAdsEnabled = on) } })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Anuncios para conseguir gemas", Modifier.weight(1f))
+                Switch(settings.gemAdsEnabled, { on -> update { it.copy(gemAdsEnabled = on) } })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Revisar 20 gemas en Tienda entre partidas", Modifier.weight(1f))
+                Switch(settings.storeGemAdsEnabled, { on -> update { it.copy(storeGemAdsEnabled = on) } })
+            }
+            Text("Revisa el regalo al terminar cada partida y al iniciar el bot. Ve el video si está disponible y vuelve a jugar. Usa también el interruptor de gemas; la disponibilidad y el reinicio los decide el juego.", style = MaterialTheme.typography.bodySmall)
+            if (calibration.storeAd == null) Text("Falta calibrar el regalo gratuito de la Tienda.", style = MaterialTheme.typography.bodySmall)
+            Text("Abre los anuncios disponibles, espera al video y cierra sólo las pantallas de final que hayas calibrado. El juego concede la recompensa; TowerBot no compra paquetes.", style = MaterialTheme.typography.bodySmall)
+            AdReward.entries.forEach { reward ->
+                Text("${reward.label}: " + if (reward in calibration.adButtons) "botón calibrado ✅" else "falta marcar el botón disponible con 📷", style = MaterialTheme.typography.bodySmall)
+            }
+            if (calibration.screensOf(ScreenRole.AD_CLOSE).none { it.tap != null }) {
+                Text("Falta calibrar «Anuncio terminado»: ancla en el botón de cierre listo y Toque en su X. Si cambia el anuncio, añade otra captura.", style = MaterialTheme.typography.bodySmall)
+            }
+            Text("El tiempo de anuncios cuenta en monedas/min: refleja lo que ganas por tiempo real. Al cambiar estos interruptores se reinician los pares del duelo, conservando las estrategias aprendidas.", style = MaterialTheme.typography.bodySmall)
+        }
+
         Section("Nivel") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Elegir el nivel según los datos", Modifier.weight(1f))
@@ -96,6 +123,15 @@ fun SettingsScreen(onBack: () -> Unit) {
         }
 
         Section("Aprendizaje") {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Probar estrategias con mis cartas", Modifier.weight(1f))
+                Switch(settings.cardStrategiesEnabled, { on -> update { it.copy(cardStrategiesEnabled = on) } })
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Aprender para alcanzar más oleadas", Modifier.weight(1f))
+                Switch(settings.waveLearningEnabled, { on -> update { it.copy(waveLearningEnabled = on) } })
+            }
+            Text("${calibration.cards?.owned?.size ?: 0} cartas registradas · ${calibration.cards?.slots ?: 0} espacios. Equipará y verificará el mazo entre partidas. Cambia una carta o las compras en cada retadora y compara por nivel. Al cambiar objetivo o inventario inicia nuevos pares.", style = MaterialTheme.typography.bodySmall)
             NumberField("Pares de partidas como mínimo en un duelo", settings.minPairs.toString()) { v ->
                 v.toIntOrNull()?.takeIf { it in 1..settings.maxPairs }?.let { n -> update { it.copy(minPairs = n) } }
             }

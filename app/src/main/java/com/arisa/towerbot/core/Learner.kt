@@ -35,6 +35,8 @@ data class LearnerState(
 data class BrainState(
     val tiers: Map<Int, LearnerState> = emptyMap(),
     val log: List<String> = emptyList(),
+    val adPolicy: String = "false:false",
+    val learningContext: String = "false:false:",
 ) {
     fun learner(tier: Int) = tiers[tier] ?: LearnerState(DefaultStrategy.create())
     fun with(tier: Int, state: LearnerState) = copy(tiers = tiers + (tier to state))
@@ -100,11 +102,23 @@ class Learner(
      * La estrategia de la próxima partida. [deathWaves]: dónde murió la campeona en sus
      * últimas partidas de este nivel; orienta el cambio de la próxima retadora.
      */
-    fun next(state: LearnerState, available: Set<Upgrade>, deathWaves: List<Int> = emptyList()): Pair<LearnerState, Strategy> {
+    fun next(state: LearnerState, available: Set<Upgrade>, deathWaves: List<Int> = emptyList(), cards: CardLayout? = null): Pair<LearnerState, Strategy> {
         var s = state
         val challenger = s.challenger ?: run {
             val id = "g${s.generation + 1}-${random.nextInt(0x1000, 0x10000).toString(16)}"
-            Mutator.mutate(s.champion, available, random, id, deathWaves).also {
+            val base = s.champion
+            val deck = base.cards
+            val unequipped = cards?.owned?.map { it.name }?.filter { it !in deck.orEmpty() }.orEmpty()
+            // Un solo cambio: carta O compras. Así el duelo puede atribuir el resultado.
+            val mutation = if (!deck.isNullOrEmpty() && unequipped.isNotEmpty() && random.nextBoolean()) {
+                val nextDeck = deck.toMutableList()
+                val index = random.nextInt(nextDeck.size)
+                val added = unequipped.random(random)
+                val removed = nextDeck[index]
+                nextDeck[index] = added
+                base.copy(id = id, parentId = base.id, cards = nextDeck, note = "Cartas: $removed → $added")
+            } else Mutator.mutate(base, available, random, id, deathWaves)
+            mutation.also {
                 s = s.copy(challenger = it).withLog("🧪 Pruebo ${it.id}: ${it.note}")
             }
         }
@@ -112,7 +126,7 @@ class Learner(
         return s to strategy
     }
 
-    fun report(state: LearnerState, strategyId: String, coinsPerMinute: Double): LearnerState {
+    fun report(state: LearnerState, strategyId: String, coinsPerMinute: Double, unit: String = "monedas/min"): LearnerState {
         var s = when (strategyId) {
             state.champion.id -> state.copy(championScores = state.championScores + coinsPerMinute)
             state.challenger?.id -> state.copy(challengerScores = state.challengerScores + coinsPerMinute)
@@ -122,7 +136,7 @@ class Learner(
         if (s.championScores.size != s.challengerScores.size) return s
 
         val r = Duel.judge(s.championScores, s.challengerScores, minPairs, maxPairs, minGain)
-        val detail = "${pct(r.gain)} de media en ${r.pairs} ${if (r.pairs == 1) "par" else "pares"}" +
+        val detail = "${pct(r.gain)} en $unit de media en ${r.pairs} ${if (r.pairs == 1) "par" else "pares"}" +
             if (r.pairs >= 2) " (entre ${pct(r.low)} y ${pct(r.high)})" else ""
         s = when (r.verdict) {
             Duel.Verdict.CONTINUE -> return s
@@ -176,6 +190,7 @@ object Mutator {
             phases = phases,
             parentId = base.id,
             note = notes.ifEmpty { listOf("sin cambios") }.joinToString("; "),
+            cards = base.cards,
         )
     }
 
