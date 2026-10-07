@@ -1,5 +1,6 @@
 package com.arisa.towerbot.core
 
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -7,6 +8,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.minutes
+import kotlin.time.Duration.Companion.seconds
 
 private const val W = 100
 private const val H = 200
@@ -73,6 +75,11 @@ private class FakeGame(
     var brokeUntilCapture = 0
     var brokeTaps = 0
     private val broke get() = state == "run" && captures < brokeUntilCapture
+    /** Android a veces pierde la respuesta: la captura o el toque número N no vuelve nunca. */
+    var lostCaptureAt = -1
+    var lostTapAt = -1
+    var lost = 0
+    private var tapsSeen = 0
     private var adCaptures = 0
 
     private fun frame(): Frame {
@@ -93,6 +100,7 @@ private class FakeGame(
     }
 
     override suspend fun capture(): Shot {
+        if (state == "run" && captures == lostCaptureAt) { lostCaptureAt = -1; lost++; awaitCancellation() }
         if (state == "ad" && ++adCaptures >= 90) adReady = true
         if (state == "run") balance += 10
         if (state == "run" && ++captures >= runLength.getValue(tier)) state = "over"
@@ -107,6 +115,7 @@ private class FakeGame(
     }
 
     override suspend fun tap(p: Pt) {
+        if (++tapsSeen == lostTapAt) { lost++; awaitCancellation() }
         when {
             state == "home" && p == storeTab -> { state = "store"; storeVisits++ }
             state == "store" && p == battleTab -> state = "home"
@@ -275,6 +284,18 @@ class BotEngineTest {
             hudBox -> if (game.hudShowsRate) "1.1K/min" else NumberParser.format(game.balance)
             else -> "Oleada 42"
         }
+    }
+
+    @Test fun `si Android no contesta una captura, un toque o una lectura, sigue jugando`() = runTest(timeout = 30.seconds) {
+        val game = FakeGame(mapOf(1 to 150), mapOf(1 to 1500.0)).apply { lostCaptureAt = 20; lostTapAt = 5 }
+        val memory = FakeMemory(calibration(), BotSettings(tierMode = TierMode.FIXED))
+        var lostReads = 1
+        val honest = reader(game)
+        val reader = NumberReader { shot, box -> if (lostReads-- > 0) awaitCancellation() else honest.read(shot, box) }
+        BotEngine(game, memory, reader, MutableStateFlow(BotStatus()), now = { testScheduler.currentTime })
+            .runLoop(30 * 60_000L)
+        assertEquals("respuestas perdidas", 2, game.lost)
+        assertTrue("debería seguir jugando partidas", memory.runs.count { it.endReason == "muerte" } >= 2)
     }
 
     @Test fun `sin dinero no vuelve a pulsar el boton gris y compra en cuanto se ilumina`() = runTest {

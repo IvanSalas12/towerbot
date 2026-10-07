@@ -135,8 +135,8 @@ class BotEngine(
     private val trace: (String) -> Unit = {},
 ) {
     val stats = FlowStats(now)
-    private val device: Device = MeasuredDevice(device, stats, now)
-    private val reader: NumberReader = MeasuredReader(reader, stats, now)
+    private val device: Device = MeasuredDevice(DeadlineDevice(device, trace), stats, now)
+    private val reader: NumberReader = MeasuredReader(DeadlineReader(reader, trace), stats, now)
     private var lastSummaryAt = 0L
     /**
      * [learnerTier]: el nivel cuyo aprendizaje eligió la estrategia. Si luego resulta que
