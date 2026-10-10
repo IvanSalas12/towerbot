@@ -259,3 +259,38 @@ class TierTest {
         assertTrue("ritmo ${s.rate}", s.rate!! > 2_600)
     }
 }
+
+class StretchedScreenTest {
+    /** Un fin de partida de mentira: título arriba, botón abajo; [grow] es lo que crece el panel por cada lado. */
+    private fun frame(grow: Int) = ArrayFrame(100, 300, IntArray(100 * 300) { i ->
+        val x = i % 100
+        val y = i / 100
+        when {
+            y in 40 - grow until 60 - grow && x in 10 until 90 -> if (x % 10 < 5) 0xFFFFFF else 0x202060
+            y in 200 + grow until 230 + grow && x in 10 until 45 -> if (x % 6 < 2) 0x00FF00 else 0x103010
+            else -> 0x101030
+        }
+    })
+
+    private val def = frame(0).let { f ->
+        ScreenDef("o", "Fin", ScreenRole.GAME_OVER,
+            listOf(Template.sample(f, Box(10, 40, 90, 60)), Template.sample(f, Box(10, 200, 45, 230))),
+            tap = Pt(27, 215), homeTap = Pt(70, 215), waveBox = Box(30, 70, 70, 90), coinsBox = Box(10, 170, 45, 190))
+    }
+
+    @Test fun `reconoce el fin de partida aunque el panel crezca y mueve los toques con los botones`() {
+        val tall = frame(25)
+        assertNull(ScreenClassifier.classify(tall, listOf(def), 0.10, 0.6))
+        val moved = ScreenClassifier.stretched(tall, def, 0.10, 0.6)!!
+        assertEquals(Pt(27, 240), moved.tap)
+        assertEquals(Pt(70, 240), moved.homeTap)
+        // Entre el título y los botones: cubre desde donde sube el título hasta donde bajan los botones.
+        assertEquals(Box(30, 45, 70, 115), moved.waveBox)
+        assertEquals(Box(10, 145, 45, 215), moved.coinsBox)
+    }
+
+    @Test fun `sin el titulo y los botones no hay fin de partida que estirar`() {
+        assertNull(ScreenClassifier.stretched(solidFrame(0x101030, 100, 300), def, 0.10, 0.6))
+        assertNull(ScreenClassifier.stretched(frame(200), def, 0.10, 0.6))
+    }
+}

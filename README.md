@@ -187,6 +187,9 @@ pantalla. Si algo no encaja, recalibra esa pantalla en el editor.
 - Si el juego se cierra, lo vuelve a abrir.
 - Si se queda en una pantalla que no conoce, pulsa Atrás. Si se repite, calibra esa pantalla
   como ventana emergente.
+- El fin de partida crece cuando sale «¡Nueva Oleada Más Alta!» o «Muerte por …»: el título
+  sube y los botones bajan. El bot los busca hasta 150 píxeles más arriba o más abajo, así
+  que no hace falta calibrar cada variante.
 
 ## Lo que ves en la app
 
@@ -211,7 +214,9 @@ pantalla. Si algo no encaja, recalibra esa pantalla en el editor.
   - **Seguridad:** la temperatura máxima de la batería.
   - **Compras:** cada cuánto compra.
   - **Nivel:** elegir el nivel solo o jugar el elegido, el nivel más alto desbloqueado y el %
-    de exploración.
+    de exploración. Al elegir nivel también prueba el siguiente al más alto: si las flechas
+    llegan, ya lo tienes y lo sube él solo; si no avanzan, no lo vuelve a intentar hasta que
+    arranque otra vez.
   - **Aprendizaje:** los pares por duelo.
   - **Visión:** los umbrales para reconocer pantallas.
 
@@ -254,10 +259,13 @@ vuelve a Batalla. Su disponibilidad depende del juego; comprobarlo no reinicia e
 
 **Probar estrategias con mis cartas** lee el inventario, estrellas y cartas nuevas antes
 de cada partida. Usa los espacios ya desbloqueados y verifica el mazo activo antes de
-empezar. Cada retadora cambia una carta o el plan de compras; conserva el otro componente.
+empezar. Al desbloquear un espacio, lo lee del contador («4/4» pasa a «4/5») y añade una
+carta a cada mazo: la que tú pusiste en el juego o, si no, la de más estrellas. Cada
+retadora cambia una carta o el plan de compras; conserva el otro componente.
 **Aprender para alcanzar más oleadas** usa la oleada final como puntuación del duelo por
-nivel, manteniendo monedas/min en el historial. Un cambio de objetivo, cartas, estrellas
-o capacidad reinicia los pares y conserva la estrategia de compras campeona.
+nivel, manteniendo monedas/min en el historial. Un cambio de objetivo o de espacios
+reinicia los pares y conserva la estrategia de compras campeona. Una carta nueva o con más
+estrellas no los reinicia: es como una mejora del Taller y afecta igual a las dos.
 
 Para no perder tiempo entre partidas: la Tienda se revisa como mucho cada 20 minutos, y el
 inventario de cartas se lee al arrancar el bot y luego cada 6 horas. Al cambiar de mazo sólo
@@ -275,7 +283,9 @@ desplazamiento, recuadro gratis y botón disponible) y `cards` (pestañas, zona 
 columnas, geometría de carta, títulos de espacios activos y contador). La distribución
 se calibra por teléfono; el inventario se actualiza durante el juego. Las zonas de
 inventario excluyen los botones para comprar cartas y espacios. Si no puede leer todo el
-inventario o comprobar la capacidad/mazo, espera en Cartas y muestra el problema.
+inventario o comprobar el mazo, lo reintenta. A la tercera, guarda una captura
+(`captures/cartas_…png`), juega una hora con el mazo que esté puesto y luego vuelve a probar.
+Esas partidas no cuentan para el duelo.
 El perfil actualizado para este teléfono es `calibraciones/1080x2400-es-0.4.json`.
 
 ```

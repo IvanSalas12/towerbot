@@ -138,6 +138,46 @@ object ScreenClassifier {
         rank(frame, screens).firstOrNull { it.distance <= threshold && it.shape >= minShape }
 
     /**
+     * El fin de partida crece con líneas que no siempre salen («¡Nueva Oleada Más Alta!»,
+     * «Muerte por Tanque»): el título sube y los botones bajan. Busca cada ancla hasta
+     * [slack] píxeles más arriba o más abajo y devuelve [screen] con todo donde está ahora.
+     * Una zona entre dos anclas se alarga para cubrir los dos movimientos.
+     */
+    fun stretched(frame: Frame, screen: ScreenDef, threshold: Double, minShape: Double, slack: Int = STRETCH_SLACK): ScreenDef? {
+        if (screen.anchors.isEmpty()) return null
+        val placed = screen.anchors.map { anchor -> anchor to (shiftOf(frame, anchor, threshold, minShape, slack) ?: return null) }
+        fun gap(y: Int, b: Box) = if (y < b.top) b.top - y else if (y > b.bottom) y - b.bottom else 0
+        fun move(p: Pt?) = p?.let { Pt(it.x, it.y + placed.minBy { (a, _) -> gap(it.y, a.box) }.second) }
+        fun stretch(b: Box?) = b?.let { box ->
+            val inside = placed.firstOrNull { (a, _) -> a.box.top < box.bottom && box.top < a.box.bottom }?.second
+            val above = placed.filter { (a, _) -> a.box.bottom <= box.top }.maxByOrNull { (a, _) -> a.box.bottom }?.second
+            val below = placed.filter { (a, _) -> a.box.top >= box.bottom }.minByOrNull { (a, _) -> a.box.top }?.second
+            val moves = if (inside != null) listOf(inside) else listOfNotNull(above, below)
+            Box(box.left, box.top + moves.min(), box.right, box.bottom + moves.max())
+        }
+        return screen.copy(
+            anchors = placed.map { (a, dy) -> a.shifted(dy) },
+            tap = move(screen.tap), homeTap = move(screen.homeTap),
+            waveBox = stretch(screen.waveBox), coinsBox = stretch(screen.coinsBox), tierBox = stretch(screen.tierBox),
+        )
+    }
+
+    /** Cuánto se ha movido [anchor] en vertical, o null si no está en ±[slack]. */
+    private fun shiftOf(frame: Frame, anchor: Template, threshold: Double, minShape: Double, slack: Int): Int? {
+        var best: Pair<Int, Double>? = null
+        fun probe(dy: Int) {
+            val moved = anchor.shifted(dy)
+            if (moved.box.top < 0 || moved.box.bottom > frame.height) return
+            val d = moved.distance(frame)
+            if (d <= threshold && d < (best?.second ?: Double.MAX_VALUE) && moved.similarity(frame) >= minShape) best = dy to d
+        }
+        for (dy in -slack..slack step COARSE_STEP) probe(dy)
+        val coarse = best?.first ?: return null
+        for (dy in coarse - COARSE_STEP + 1 until coarse + COARSE_STEP) probe(dy)
+        return best?.first
+    }
+
+    /**
      * Qué pestaña muestra el panel según su título, o null si el panel está cerrado.
      * Importa porque tocar la pestaña que ya está abierta cierra el panel.
      */
@@ -201,4 +241,6 @@ object ScreenClassifier {
 
     private const val COARSE_STEP = 6
     private const val MAXED_BLUE_MARGIN = 25
+    /** Cada línea de más en el panel lo alarga ~50 píxeles: unas tres líneas de margen. */
+    private const val STRETCH_SLACK = 150
 }

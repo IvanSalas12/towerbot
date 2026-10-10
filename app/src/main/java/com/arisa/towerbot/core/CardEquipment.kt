@@ -18,12 +18,31 @@ class CardEquipment(
         }
     }
 
-    private suspend fun count(shot: Shot, layout: CardLayout): Int? {
+    /** «ACTIVO 3/5»: 3 cartas puestas de 5 espacios. */
+    private suspend fun counter(shot: Shot, layout: CardLayout): Pair<Int, Int>? {
         val count = reader.read(shot, layout.countBox) ?: return null
         trace("Cartas activas: contador «$count»")
         val match = Regex("(\\d+)\\s*/\\s*(\\d+)").find(count) ?: return null
-        if (match.groupValues[2].toInt() != layout.slots) return null
-        return match.groupValues[1].toInt().takeIf { it in 0..layout.slots }
+        val on = match.groupValues[1].toInt()
+        val total = match.groupValues[2].toInt()
+        return (on to total).takeIf { total in 1..MAX_SLOTS && on in 0..total }
+    }
+
+    private suspend fun count(shot: Shot, layout: CardLayout): Int? {
+        val (on, total) = counter(shot, layout) ?: return null
+        if (total != layout.slots) {
+            trace("El contador dice $total espacios y el mazo es de ${layout.slots}")
+            return null
+        }
+        return on
+    }
+
+    /** Los espacios que tienes, si dos lecturas seguidas coinciden: el lector a veces confunde dígitos. */
+    suspend fun capacity(layout: CardLayout): Int? {
+        val first = cardsShot()?.let { counter(it, layout) }?.second ?: return null
+        delay(300)
+        val second = cardsShot()?.let { counter(it, layout) }?.second ?: return null
+        return first.takeIf { it == second }
     }
 
     private fun markerBox(look: Template) = Box(look.box.right - 35, look.box.bottom + 35,
@@ -47,6 +66,10 @@ class CardEquipment(
     /** Lee cartas con título y estrellas; los recuadros con candado no tienen esos separadores. */
     suspend fun review(layout: CardLayout, now: Long): CardLayout? {
         if (layout.inventoryColumns.isEmpty()) return layout
+        // Una carta que el lector leyó mal una vez no es otra carta: se queda la primera de cada nombre.
+        val known = layout.owned.fold(listOf<OwnedCard>()) { kept, card ->
+            if (kept.any { BetweenRuns.sameName(it.name, card.name) }) kept else kept + card
+        }
         BetweenRuns.top(device, layout.area)
         val found = linkedMapOf<String, OwnedCard>()
         val equipped = linkedSetOf<String>()
@@ -73,7 +96,8 @@ class CardEquipment(
                     val title = Box(column.left, top + 7, column.right, top + 47)
                     val text = reader.read(shot, title)?.trim()?.replace('\n', ' ')
                     if (!text.isNullOrBlank()) {
-                        val name = layout.owned.firstOrNull { BetweenRuns.normalize(it.name) == BetweenRuns.normalize(text) }?.name ?: text
+                        // La misma carta sale en dos páginas seguidas y no siempre se lee igual.
+                        val name = (known.map { it.name } + found.keys).firstOrNull { BetweenRuns.sameName(it, text) } ?: text
                         val stars = countStars(shot.frame, Box(column.left, top + layout.starRow, column.right, top + layout.starRow + 1))
                         if (stars in 1..7) {
                             val look = Template.sample(shot.frame, Box(column.left, top + 6, column.right, top + layout.iconBottom - 2), 24)
@@ -90,7 +114,7 @@ class CardEquipment(
             BetweenRuns.down(device, layout.area)
         }
         // Una lectura incompleta no borra cartas ni altera el aprendizaje.
-        if (found.isEmpty() || layout.owned.any { it.name !in found }) return null
+        if (found.isEmpty() || known.any { it.name !in found }) return null
         return layout.copy(owned = found.values.toList(), reviewedAt = now, equipped = equipped.toList())
     }
 
@@ -165,5 +189,10 @@ class CardEquipment(
             count(cardsShot()?.also { shot = it } ?: return false, layout) == target.size
         trace("Mazo ${if (verified) "verificado" else "sin verificar"}: $target")
         return verified
+    }
+
+    private companion object {
+        /** Más espacios que los que da el juego: una lectura así es un error del lector. */
+        const val MAX_SLOTS = 30
     }
 }

@@ -50,6 +50,8 @@ interface BotMemory {
     val runs: List<RunRecord>
     fun addRun(run: RunRecord)
     fun updateCards(cards: CardLayout) {}
+    /** Ya juegas el Nivel [tier]: pasa a ser el más alto desbloqueado si lo era uno menor. */
+    fun raiseMaxTier(tier: Int) {}
 }
 
 @Serializable
@@ -198,6 +200,10 @@ class BotEngine(
     private var cardsVerified = false
     /** Ya leyó el inventario de cartas desde que arrancó el bot. */
     private var cardsReviewed = false
+    /** Visitas a Cartas desde la última vez que el mazo quedó comprobado. */
+    private var cardAttempts = 0
+    /** Tras fallar varias veces en Cartas, juega con el mazo puesto hasta entonces. */
+    private var cardsPausedUntil = 0L
 
     /** El nivel de la próxima partida, ya comprobado en pantalla. */
     private var plan: TierChoice? = null
@@ -342,6 +348,7 @@ class BotEngine(
             return
         }
         val match = ScreenClassifier.classify(shot.frame, calibration.screens, settings.matchThreshold, settings.matchShape)
+            ?: stretchedGameOver(shot)
         status.update { it.copy(screen = match?.screen?.name ?: "Desconocida") }
         if (match == null) {
             if (adStartedAt != null) {
@@ -378,6 +385,15 @@ class BotEngine(
             lastExitRole = screen.role
             lastExitRoleAt = now()
         }
+    }
+
+    /** El fin de partida con líneas de más (récord, causa de muerte): sin esto se perdía la partida. */
+    private fun stretchedGameOver(shot: Shot): ScreenMatch? {
+        val screen = calibration.screensOf(ScreenRole.GAME_OVER).firstNotNullOfOrNull {
+            ScreenClassifier.stretched(shot.frame, it, settings.matchThreshold, settings.matchShape)
+        } ?: return null
+        trace("Fin de partida con el panel más alto: pulso en ${screen.tap}")
+        return ScreenMatch(screen, 0.0, 1.0)
     }
 
     private suspend fun tryAd(shot: Shot): Boolean {
@@ -473,8 +489,10 @@ class BotEngine(
     /** El nivel que toca según tus datos, o null si el bot no debe elegirlo. */
     private fun decideTier(current: Int?): TierChoice? {
         if (settings.tierMode != TierMode.AUTO || !calibration.canChooseTier()) return null
+        // Uno más del más alto conocido: si ya lo desbloqueaste, las flechas llegan y lo prueba.
+        // Si no, la flecha no avanza y [tierCeiling] lo descarta hasta que vuelva a arrancar.
         val choice = TierPlanner.choose(
-            memory.runs, now(), minOf(settings.maxTier, tierCeiling), settings.exploreShare, current,
+            memory.runs, now(), minOf(settings.maxTier + 1, tierCeiling), settings.exploreShare, current,
         )
         // Al diario sólo va cuando cambia lo que decide, no en cada partida.
         if (choice.tier != lastChoice?.tier || choice.explore != lastChoice?.explore) {
@@ -491,6 +509,8 @@ class BotEngine(
         val tap = screen.tap ?: return say("Falta calibrar el punto de BATALLA")
         val current = readTier(device.capture(), screen.tierBox)
         status.update { it.copy(tier = current) }
+        // Las flechas no pasan del nivel más alto que tienes: si se ve el siguiente, ya es tuyo.
+        if (current == settings.maxTier + 1) unlocked(current)
         val wanted = plan?.tier ?: decideTier(current)?.also { plan = it }?.tier
         val prev = screen.tierPrev
         val next = screen.tierNext
@@ -504,7 +524,8 @@ class BotEngine(
             }
             // Las flechas no llegan: ese nivel no está desbloqueado.
             if (wanted > current) tierCeiling = current
-            memory.brain = memory.brain.withLog("${clock(now())} ⚠ No llego al Nivel $wanted: juego el $current")
+            memory.brain = memory.brain.withLog("${clock(now())} " +
+                if (wanted > settings.maxTier) "Aún no tienes el Nivel $wanted: juego el $current" else "⚠ No llego al Nivel $wanted: juego el $current")
             plan = TierChoice(current, explore = false, reason = "no se pudo cambiar")
         }
         tierTries = 0
@@ -517,7 +538,7 @@ class BotEngine(
             delay(1000)
             return
         }
-        if (settings.cardStrategiesEnabled && calibration.cards != null) {
+        if (preparesCards()) {
             if (current == null) return say("Necesito leer el nivel antes de preparar las cartas")
             if (preparedTier != current || preparedStrategy == null) {
                 preparedStrategy = chooseStrategy(current)
@@ -525,6 +546,8 @@ class BotEngine(
                 cardsVerified = false
             }
             if (!cardsVerified) {
+                // Si Cartas no llega a comprobarse (pantalla que no reconoce, Atrás), no insiste sin fin.
+                if (++cardAttempts > MAX_CARD_ATTEMPTS) return pauseCards()
                 say("Preparo y compruebo las cartas del Nivel $current")
                 device.tap(calibration.cards!!.tab)
                 delay(1000)
@@ -534,6 +557,12 @@ class BotEngine(
         say("Empiezo partida" + (current?.let { " en el Nivel $it" } ?: ""))
         device.tap(tap)
         delay(3000)
+    }
+
+    private fun unlocked(tier: Int) {
+        memory.raiseMaxTier(tier)
+        tierCeiling = Int.MAX_VALUE
+        memory.brain = memory.brain.withLog("${clock(now())} 🔓 Ya tienes el Nivel $tier: lo añado a los niveles que elijo")
     }
 
     private suspend fun onGameOver(screen: ScreenDef) {
@@ -561,7 +590,7 @@ class BotEngine(
         val home = screen.homeTap
         val sameTier = choice == null || current == null || choice.tier == current
         val betweenRuns = (settings.gemAdsEnabled && settings.storeGemAdsEnabled && calibration.storeAd != null && !storeChecked) ||
-            (settings.cardStrategiesEnabled && calibration.cards != null && !(sameTier && deckAlreadyOn(current)))
+            (preparesCards() && !(sameTier && deckAlreadyOn(current)))
         if (home != null && (betweenRuns || (choice != null && current != null && choice.tier != current))) {
             // Para cambiar de nivel hay que ir al inicio; allí se mueven las flechas.
             plan = choice
@@ -644,16 +673,12 @@ class BotEngine(
 
     private suspend fun onCards() {
         var layout = calibration.cards ?: return say("Falta revisar el inventario de cartas")
-        if (!settings.cardStrategiesEnabled) {
+        val strategy = preparedStrategy.takeIf { preparesCards() } ?: run {
             device.tap(layout.battleTab)
             delay(1000)
             return
         }
-        val strategy = preparedStrategy ?: run {
-            device.tap(layout.battleTab)
-            delay(1000)
-            return
-        }
+        var problem = "No pude comprobar el mazo"
         device.setOverlayVisible(false)
         val equipped = try {
             delay(350)
@@ -661,16 +686,17 @@ class BotEngine(
             // Las cartas sólo cambian si las compras o mejoras tú: basta leerlas al arrancar
             // y cada pocas horas, no después de cada muerte.
             val fresh = cardsReviewed && now() - layout.reviewedAt < CARD_REVIEW_MS
-            val reviewed = if (fresh) layout else equipment.review(layout, now())
+            val reviewed = if (fresh) layout else equipment.review(layout, now())?.let { withCapacity(it, equipment) }
             if (reviewed == null) {
-                say("No pude leer todo el inventario de cartas; espero para evitar una prueba incompleta")
+                problem = "No pude leer todo el inventario de cartas"
                 false
             } else {
-                val changed = reviewed.fingerprint() != layout.fingerprint()
+                // Se vuelve a elegir si cambiaron los espacios o el mazo usa una carta que no aparece.
+                val stale = reviewed.fingerprint() != layout.fingerprint() || strategy.cards?.let { reviewed.fit(it) != it } != false
                 memory.updateCards(reviewed)
                 layout = reviewed
                 cardsReviewed = true
-                val selected = if (changed) chooseStrategy(preparedTier ?: 1).also { preparedStrategy = it } else strategy
+                val selected = if (stale) chooseStrategy(preparedTier ?: 1).also { preparedStrategy = it } else strategy
                 val deck = selected.cards
                 (deck != null && equipment.equip(layout, deck)).also { ok ->
                     // Si algo falla a medias, no se sabe qué quedó puesto: se vuelve a leer.
@@ -679,12 +705,40 @@ class BotEngine(
             }
         } finally { device.setOverlayVisible(true) }
         if (!equipped) {
-            say("No pude comprobar las cartas. Revisa el mazo o la calibración; no inicio la prueba")
-            delay(5000)
+            // Se guarda para ver qué había en pantalla: suele ser algo que cambió en el juego.
+            device.capture()?.let { device.keepCapture(it, "cartas") }
+            if (++cardAttempts > MAX_CARD_ATTEMPTS) return pauseCards()
+            say("$problem: lo vuelvo a intentar")
+            delay(3000)
             return
         }
+        cardAttempts = 0
         cardsVerified = true
         device.tap(layout.battleTab)
+        delay(1000)
+    }
+
+    /** Al desbloquear un espacio el contador pasa de «4/4» a «4/5»: los mazos crecen con él. */
+    private suspend fun withCapacity(layout: CardLayout, equipment: CardEquipment): CardLayout {
+        val n = equipment.capacity(layout)?.takeIf { it != layout.slots } ?: return layout
+        memory.brain = memory.brain.withLog("${clock(now())} 🃏 Ahora tienes $n espacios de cartas (antes ${layout.slots})")
+        trace("Capacidad de cartas: ${layout.slots} → $n")
+        return layout.withCapacity(n)
+    }
+
+    private fun preparesCards() = settings.cardStrategiesEnabled && calibration.cards != null && now() >= cardsPausedUntil
+
+    /**
+     * Cartas no se deja preparar: mejor jugar con el mazo que esté puesto que quedarse
+     * parado toda la noche. Esas partidas no cuentan para aprender; vuelve a intentarlo luego.
+     */
+    private suspend fun pauseCards() {
+        cardAttempts = 0
+        cardsReviewed = false
+        cardsPausedUntil = now() + CARD_PAUSE_MS
+        memory.brain = memory.brain.withLog("${clock(now())} ⚠ No pude preparar las cartas: juego ${CARD_PAUSE_MS / 60_000} min con el mazo puesto, sin aprender con ellas")
+        say("No pude preparar las cartas: juego con el mazo puesto y lo reintento en ${CARD_PAUSE_MS / 60_000} min")
+        calibration.cards?.let { device.tap(it.battleTab) }
         delay(1000)
     }
 
@@ -699,18 +753,25 @@ class BotEngine(
         if (brain.adPolicy != policy || brain.learningContext != context) {
             val layout = calibration.cards.takeIf { settings.cardStrategiesEnabled }
             brain = brain.copy(adPolicy = policy, learningContext = context, tiers = brain.tiers.mapValues { (_, s) ->
-                val validDeck = s.champion.cards?.takeIf { deck ->
-                    layout != null && deck.size == layout.slots && deck.all { name -> layout.owned.any { it.name == name } }
-                }
-                s.copy(champion = s.champion.copy(cards = layout?.let { validDeck ?: it.initialDeck }),
+                // Un espacio nuevo no tira el mazo aprendido: se le añade una carta.
+                s.copy(champion = s.champion.copy(cards = layout?.fit(s.champion.cards)),
                     challenger = if (brain.learningContext != context) null else s.challenger,
                     championScores = emptyList(), challengerScores = emptyList())
-                    .withLog("↺ Cambió el objetivo, inventario o anuncios: nuevos pares, conservo las compras aprendidas")
+                    .withLog("↺ Cambió el objetivo, los espacios de cartas o los anuncios: nuevos pares, conservo las compras aprendidas")
             })
         }
         var current = brain.learner(tier)
         val layout = calibration.cards.takeIf { settings.cardStrategiesEnabled }
-        if (layout != null && current.champion.cards == null) current = current.copy(champion = current.champion.copy(cards = layout.initialDeck))
+        if (layout != null) {
+            // Un mazo que no se puede poner (carta leída mal, espacio nuevo) nunca tuvo partidas que conservar.
+            val deck = layout.fit(current.champion.cards)
+            if (deck != current.champion.cards) current = current.copy(champion = current.champion.copy(cards = deck))
+            val challenger = current.challenger
+            if (challenger != null && layout.fit(challenger.cards) != challenger.cards) {
+                current = current.copy(challenger = null, championScores = emptyList(), challengerScores = emptyList())
+                    .withLog("↺ ${challenger.id} usaba una carta que no encuentro: pruebo otra retadora")
+            }
+        }
         val (state, strategy) = Learner(settings.minPairs, settings.maxPairs, random = random).next(
             current, calibration.availableUpgrades(), deathWaves(tier, current.champion.id), layout,
         )
@@ -990,6 +1051,8 @@ class BotEngine(
                 learningMetric = metric,
             ),
         )
+        // Los niveles se desbloquean de uno en uno: una partida en el siguiente prueba que ya lo tienes.
+        if (reason == "muerte" && r.tier == settings.maxTier + 1) unlocked(r.tier!!)
         if (counted) {
             val learner = Learner(settings.minPairs, settings.maxPairs, random = random)
             val brain = memory.brain
@@ -1019,6 +1082,9 @@ class BotEngine(
         const val MAX_MONEY_WAIT_MS = 30_000L
         const val STORE_RECHECK_MS = 20 * 60_000L
         const val CARD_REVIEW_MS = 6 * 60 * 60_000L
+        /** Visitas a Cartas sin comprobar el mazo antes de jugar con el que esté puesto. */
+        const val MAX_CARD_ATTEMPTS = 3
+        const val CARD_PAUSE_MS = 60 * 60_000L
         const val WAVE_READ_MS = 15_000L
         const val MAX_SEARCH_STEPS = 14
         const val LIST_STILL = 0.01

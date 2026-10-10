@@ -53,7 +53,7 @@ fun StrategyScreen(onBack: () -> Unit) {
             Section("Mis cartas · ${cards.slots} espacios") {
                 Text("Mazo inicial: ${cards.initialDeck.joinToString()}", style = MaterialTheme.typography.bodySmall)
                 cards.owned.forEach { Text("${it.name} · ${it.stars} ★", style = MaterialTheme.typography.bodySmall) }
-                Text("Inventario revisado: ${formatTime(cards.reviewedAt)}. Lee cartas nuevas y estrellas entre partidas. Si cambia la distribución de la pantalla, hay que actualizar la calibración.", style = MaterialTheme.typography.bodySmall)
+                Text("Inventario revisado: ${formatTime(cards.reviewedAt)}. Lee cartas nuevas, estrellas y espacios desbloqueados entre partidas.", style = MaterialTheme.typography.bodySmall)
             }
         }
 
