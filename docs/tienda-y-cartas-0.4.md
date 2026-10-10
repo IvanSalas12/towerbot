@@ -20,19 +20,25 @@ equipa el mazo y verifica sus marcas verdes en el inventario y el contador de es
 estrategia al comenzar la ronda; no vuelve a sortear otra.
 
 El objetivo seleccionable de oleadas compara las oleadas finales por pares completos
-de campeona/retadora. Monedas/min sigue registrado. Cambiar objetivo, inventario, estrellas
-o capacidad reinicia los pares; conserva las compras campeonas y la generación. Un mazo
-inválido vuelve al inicial. Las rondas tomadas a mitad, mazos no verificados y cambios
+de campeona/retadora. Monedas/min sigue registrado. Cambiar objetivo o espacios reinicia
+los pares; conserva las compras campeonas y la generación. Antes también los reiniciaban
+las cartas nuevas y las estrellas, y en una semana sólo se cerró un duelo: cada revisión
+del inventario borraba los pares de todos los niveles. Un mazo con una carta que ya no
+aparece se completa con las del inventario. Las rondas tomadas a mitad, mazos no verificados y cambios
 de configuración durante una ronda no cuentan para aprender.
 
 La calibración de Tienda y la geometría del inventario son específicas de pantalla e
 idioma. Se incluyen en el perfil actualizado de 1080×2400. Los nuevos cierres de anuncios
-se añaden en el editor habitual. Desbloquear más espacios cambia la distribución del
-panel activo: hay que actualizar la capacidad y el mazo inicial del perfil; el bot
-detecta la capacidad distinta y espera.
+se añaden en el editor habitual. Al desbloquear un espacio, el bot lee la capacidad nueva
+del contador (dos lecturas iguales seguidas) al revisar el inventario. Cada mazo conserva
+sus cartas y suma la que pusiste tú en el juego o, si no, la de más estrellas. No hace falta
+recalibrar. Si aun así no logra comprobar el mazo tres veces seguidas, juega una hora con el
+mazo puesto, sin contar esas partidas, y lo vuelve a intentar.
 El recorte del contador debe incluir la palabra ACTIVO encima del número: un «0/4»
 aislado puede hacer que el OCR lo interprete girado. Los nombres se comparan sin acentos,
-espacios ni saltos de línea para tolerar diferencias de OCR.
+espacios ni saltos de línea, y con una letra de diferencia por cada diez: la misma carta
+sale en dos páginas seguidas y una vez se leyó «Probabilidad de críitico». Esa carta
+fantasma hacía fallar todas las revisiones siguientes.
 La fila de cartas activas se puede desplazar horizontalmente y el juego la mueve al
 equipar cartas. Por eso el bot selecciona y verifica desde el inventario, donde las
 cartas mantienen su columna. Cada cambio se comprueba con el contador y la marca verde.

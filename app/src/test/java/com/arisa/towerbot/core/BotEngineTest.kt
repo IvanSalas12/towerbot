@@ -26,6 +26,8 @@ private const val OFFER = 0x707070
 private const val STORE = 0x00C0C0
 private val storeTab = Pt(90, 190)
 private val battleTab = Pt(10, 190)
+private const val CARDS = 0x806040
+private val cardsTab = Pt(70, 190)
 private val storeOffer = Box(10, 85, 40, 100)
 private val storeVideo = Box(10, 110, 40, 125)
 
@@ -69,6 +71,7 @@ private class FakeGame(
     var adForeground = "com.TechTreeGames.TheTower"
     var gameLaunches = 0
     var storeVisits = 0
+    var cardsVisits = 0
     var storeAvailable = true
     var adReturn = "run"
     /** Sin dinero el botón se ve gris y pulsarlo no compra nada. */
@@ -83,7 +86,7 @@ private class FakeGame(
     private var adCaptures = 0
 
     private fun frame(): Frame {
-        val base = when (state) { "home" -> RED; "store" -> STORE; "run" -> GREEN; "offer" -> OFFER; "ad" -> if (adReady) YELLOW else 0x101010; else -> BLUE }
+        val base = when (state) { "home" -> RED; "store" -> STORE; "cards" -> CARDS; "run" -> GREEN; "offer" -> OFFER; "ad" -> if (adReady) YELLOW else 0x101010; else -> BLUE }
         // Un botón azul, como los de The Tower; cambia un poco con cada compra.
         val slotColor = if (broke) 0x405080 else if (purchases % 2 == 0) SLOT_BLUE else SLOT_BLUE + 0x10
         return ArrayFrame(W, H, IntArray(W * H) { i ->
@@ -119,6 +122,8 @@ private class FakeGame(
         when {
             state == "home" && p == storeTab -> { state = "store"; storeVisits++ }
             state == "store" && p == battleTab -> state = "home"
+            state == "home" && p == cardsTab -> { state = "cards"; cardsVisits++ }
+            state == "cards" && p == battleTab -> state = "home"
             state == "store" && storeAvailable && p == storeVideo.center -> {
                 state = "ad"; adReturn = "store"; adsOpened++; adCaptures = 0; adReady = false
             }
@@ -259,6 +264,42 @@ class BotEngineTest {
         assertTrue(learned.championScores.isEmpty())
         assertTrue(learned.challengerScores.isEmpty())
     }
+    @Test fun `si no puede comprobar las cartas juega con el mazo puesto y lo reintenta luego`() = runTest {
+        val game = FakeGame(mapOf(1 to 150), mapOf(1 to 1500.0))
+        // El contador de Cartas no se puede leer: antes el bot se quedaba ahí para siempre.
+        val cards = CardLayout(cardsTab, battleTab, Box(0, 79, 100, 180), listOf(Box(0, 40, 50, 50)), Box(0, 150, 50, 170),
+            listOf(OwnedCard("Salud", 2, Template.sample(solidFrame(CARDS, W, H), Box(10, 100, 40, 130)))), listOf("Salud"))
+        val cal = calibration().copy(cards = cards, screens = calibration().screens +
+            ScreenDef("cards", "Cartas", ScreenRole.CARDS, listOf(Template.sample(solidFrame(CARDS, W, H), anchorBox))))
+        val memory = FakeMemory(cal, BotSettings(tierMode = TierMode.FIXED, cardStrategiesEnabled = true))
+        BotEngine(game, memory, reader(game), MutableStateFlow(BotStatus()), now = { testScheduler.currentTime })
+            .runLoop(90 * 60_000L)
+        assertTrue("debería seguir jugando: ${game.played.size} partidas", game.played.size >= 3)
+        val deaths = memory.runs.filter { it.endReason == "muerte" }
+        assertTrue("sin mazo comprobado no cuenta para aprender", deaths.isNotEmpty() && deaths.none { it.counted })
+        // Lo intenta al arrancar y otra vez pasada la hora de pausa, no en cada muerte.
+        assertEquals("visitas a Cartas", 2, game.cardsVisits)
+        assertEquals(2, memory.brain.log.count { "No pude preparar las cartas" in it })
+        assertEquals(0, game.backCalls)
+    }
+
+    @Test fun `al jugar el siguiente nivel lo suma a los niveles que elige`() = runTest {
+        val game = FakeGame(mapOf(4 to 150), mapOf(4 to 1500.0), tier = 4, unlocked = 4)
+        var raised: Int? = null
+        val memory = object : BotMemory {
+            override val calibration = calibration()
+            override val settings = BotSettings(tierMode = TierMode.FIXED, maxTier = 3)
+            override var brain = BrainState()
+            override val runs = mutableListOf<RunRecord>()
+            override fun addRun(run: RunRecord) { runs += run }
+            override fun raiseMaxTier(tier: Int) { raised = tier }
+        }
+        BotEngine(game, memory, reader(game), MutableStateFlow(BotStatus()), now = { testScheduler.currentTime })
+            .runLoop(5 * 60_000L)
+        assertEquals(4, raised)
+        assertTrue(memory.brain.log.any { "Nivel 4" in it })
+    }
+
     private fun calibration(): Calibration {
         fun anchor(color: Int) = listOf(Template.sample(solidFrame(color, W, H), anchorBox))
         return Calibration(
@@ -361,6 +402,36 @@ class BotEngineTest {
         val exploring = runs.filter { it.explore }.sumOf { it.minutes ?: 0.0 } / total
         assertTrue("exploró el ${(exploring * 100).toInt()} % del tiempo", exploring < 0.3)
         assertTrue(memory.brain.log.any { it.contains("Pruebo el Nivel 3") })
+    }
+
+    @Test fun `si el siguiente nivel no esta desbloqueado lo intenta una vez y sigue jugando`() = runTest {
+        val game = FakeGame(runLength = mapOf(1 to 100), coins = mapOf(1 to 1_000.0), unlocked = 1)
+        val memory = FakeMemory(calibration(), BotSettings(maxTier = 1))
+        BotEngine(game, memory, reader(game), MutableStateFlow(BotStatus()), now = { testScheduler.currentTime }, random = Random(3))
+            .runLoop(stopAt = 60 * 60_000L)
+        assertEquals(1, memory.brain.log.count { it.contains("Aún no tienes el Nivel 2") })
+        assertTrue(game.played.size >= 3 && game.played.all { it == 1 })
+    }
+
+    @Test fun `descubre solo el nivel que acabas de desbloquear`() = runTest(timeout = 5.minutes) {
+        val game = FakeGame(
+            runLength = mapOf(1 to 100, 2 to 100, 3 to 100, 4 to 100),
+            coins = mapOf(1 to 1_000.0, 2 to 1_000.0, 3 to 1_000.0, 4 to 4_000.0),
+            unlocked = 4,
+        )
+        var maxTier = 3
+        val memory = object : BotMemory {
+            override val calibration = calibration()
+            override val settings get() = BotSettings(maxTier = maxTier)
+            override var brain = BrainState()
+            override val runs = mutableListOf<RunRecord>()
+            override fun addRun(run: RunRecord) { runs += run }
+            override fun raiseMaxTier(tier: Int) { maxTier = maxOf(maxTier, tier) }
+        }
+        BotEngine(game, memory, reader(game), MutableStateFlow(BotStatus()), now = { testScheduler.currentTime }, random = Random(3))
+            .runLoop(stopAt = 4 * 60 * 60_000L)
+        assertEquals(4, maxTier)
+        assertTrue("debería jugar el Nivel 4: ${game.played}", 4 in game.played)
     }
 
     @Test fun `si el contador enseña el ritmo lo pulsa una vez y vuelve a medir monedas`() = runTest {

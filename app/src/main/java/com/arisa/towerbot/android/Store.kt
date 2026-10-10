@@ -55,6 +55,7 @@ class Store(private val dir: File) : BotMemory {
         save("calibration.json", Calibration.serializer(), _calibration.value)
     }
     override fun updateCards(cards: CardLayout) = updateCalibration { it.copy(cards = cards) }
+    override fun raiseMaxTier(tier: Int) = updateSettings { if (tier > it.maxTier) it.copy(maxTier = tier) else it }
 
     fun updateSettings(change: (BotSettings) -> BotSettings) {
         _settings.update(change)
